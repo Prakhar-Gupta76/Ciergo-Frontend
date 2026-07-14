@@ -54,7 +54,10 @@ export function CalendarView({ events, from, loading, onPrevious, onNext, onStat
     { length: 7 },
     (_, index) => new Date(from.getFullYear(), from.getMonth(), from.getDate() + index)
   );
-  const hours = Array.from({ length: 10 }, (_, index) => index + 8);
+  // Render the complete working-day range used by the mock timeline data.
+  // Event positions are calculated from 08:00, so the grid must continue
+  // through 23:00 as well; otherwise evening cards overflow past the lines.
+  const hours = Array.from({ length: 16 }, (_, index) => index + 8);
   const hourHeight = 40;
   const grouped = useMemo(() => events.reduce<Record<string, CalendarEvent[]>>((result, event) => {
     (result[dayKey(new Date(event.schedule.startAt))] ??= []).push(event); return result;
