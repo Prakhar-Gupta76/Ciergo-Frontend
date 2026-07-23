@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   ArrowDownToLine, ArrowRightLeft, ArrowUpDown, Check, ChevronDown, ClipboardList, Copy,
-  ExternalLink, Filter, Link2, MoreHorizontal, Pencil, Plus, ReceiptText,
+  CircleDollarSign, ExternalLink, Filter, Link2, List, MoreHorizontal, Pencil, Plus, ReceiptText,
   RefreshCcw, RotateCcw, Send, Trash2, X
 } from "lucide-react";
 import type { ApprovalStatus, Booking, FiltersState, LookupType, Pagination, TabView } from "../types";
@@ -105,19 +105,19 @@ export function BookingsTable({
           </tr></thead>
           <tbody>{bookings.map((booking) => {
             const service = booking.serviceTypeIds?.[0];
-            const pending = booking.paymentStatus === "PENDING";
             return <tr key={booking._id} className={booking.approval.status.toLowerCase()}>
               {selected.length > 0 && <td className="select-cell"><button className={`check-box ${selected.includes(booking._id) ? "checked" : ""}`} onClick={() => select(booking._id)}>{selected.includes(booking._id) && <Check size={12} />}</button></td>}
               <td><button className="booking-link">{booking.bookingId}</button></td><td>{booking.leadPax.name}</td><td>{date(booking.travelStartDate)}</td>
               <td><div className="service-cell"><span><ServiceIcon code={service?.code} size={16} /></span>{booking.bookingTypeId?.code === "LI" && <small>{booking.bookingTypeId.name}</small>}<em>{service?.name || "—"}</em></div></td>
-              <td><div className={`payment-status-wrap ${pending ? "has-pending-tooltip" : ""}`}><span className={`status-badge ${booking.paymentStatus.toLowerCase().replaceAll("_", "-")}`}>{booking.paymentStatus.replaceAll("_", " ").replace(/\b\w/g, (value) => value.toUpperCase())}</span>{pending && <div className="pending-hover-card" role="tooltip"><u>PENDING AMOUNT</u><span>CUSTOMER : {money(booking.pendingAmounts?.customer || booking.totals.customerAmount)}</span><span>VENDOR : {money(booking.pendingAmounts?.vendor || booking.totals.vendorAmount)}</span></div>}</div></td>
+              <td><div className="payment-status-wrap has-payment-tooltip" tabIndex={0}><span className={`status-badge ${booking.paymentStatus.toLowerCase().replaceAll("_", "-")}`}>{booking.paymentStatus.replaceAll("_", " ").replace(/\b\w/g, (value) => value.toUpperCase())}</span><div className="pending-hover-card payment-summary-tooltip" role="tooltip"><u>PAYMENT SUMMARY</u><span>Customer: {money(booking.paymentBreakdown.customer.paid)} paid / {money(booking.paymentBreakdown.customer.pending)} pending</span><span>Vendor: {money(booking.paymentBreakdown.vendor.paid)} paid / {money(booking.paymentBreakdown.vendor.pending)} pending</span></div></div></td>
               <td>{money(booking.totals.customerAmount)}</td><td><Owners booking={booking} /></td>
               <td>{booking.approval.status === "REJECTED" ? "—" : <VoucherMenu booking={booking} />}</td>
               <td>{booking.approval.status === "REJECTED" ? "—" : <button className="task-btn"><ClipboardList size={16} />{booking.openTaskCount > 0 && <span>{booking.openTaskCount}</span>}{booking.openTaskCount === 0 && <Plus size={15} />}</button>}</td>
               <td><div className="actions-cell">
                 {booking.allowedActions.includes("APPROVE") && <button className="approval-action approve" onClick={() => onAction("APPROVE", booking)}><Check size={18} /></button>}
                 {booking.allowedActions.includes("REJECT") && <button className="approval-action reject" onClick={() => onAction("REJECT", booking)}><X size={18} /></button>}
-                {booking.allowedActions.includes("RECORD_PAYMENT") && <button className="tiny-action rupee" onClick={() => onAction("RECORD_PAYMENT", booking)}>₹</button>}
+                {booking.allowedActions.includes("RECORD_PAYMENT") && <button className="payment-row-action record" onClick={() => onAction("RECORD_PAYMENT", booking)}><CircleDollarSign size={15} /><span>Record Payment</span></button>}
+                <button className="payment-row-action" onClick={() => onAction("VIEW_PAYMENTS", booking)}><List size={15} /><span>View Payments</span></button>
                 <RowMenu booking={booking} onAction={onAction} />
               </div></td>
             </tr>;

@@ -30,6 +30,8 @@ export interface Booking {
   resourceId?: string;
   sessionCreated?: boolean;
   bookingId: string;
+  customerName: string;
+  vendorName: string;
   leadPax: { name: string; phone?: string; email?: string };
   bookingDate: string;
   travelStartDate: string;
@@ -40,6 +42,10 @@ export interface Booking {
   currency: string;
   totals: { customerAmount: number; vendorAmount: number; grossMargin: number };
   pendingAmounts?: { customer: number; vendor: number };
+  paymentBreakdown: {
+    customer: { paid: number; pending: number; total: number };
+    vendor: { paid: number; pending: number; total: number };
+  };
   bookingStatus: string;
   paymentStatus: string;
   approval: { required: boolean; status: ApprovalStatus };
@@ -101,7 +107,26 @@ export interface ApiPayment {
   mode?: string;
   reference?: string;
   status?: string;
+  additionalEntries?: PaymentAdditionalEntry[];
+  documentName?: string;
+  documentType?: string;
+  documentSize?: number | string;
 }
+
+export type PaymentParty = "Customer" | "Vendor";
+export type PaymentAdditionalEntryType =
+  | "DEPOSIT_INCENTIVE"
+  | "CASHBACK"
+  | "BANK_CHARGES";
+
+export interface PaymentAdditionalEntry {
+  type: PaymentAdditionalEntryType;
+  amount: number | string;
+  reference: string;
+  parentPaymentId: string;
+}
+
+export type PaymentSheetMode = "CREATE" | "LIST" | "VIEW" | "EDIT";
 
 export type BookingWritePayload = Omit<ApiBooking, "ID">;
 export type PaymentWritePayload = Omit<ApiPayment, "id">;

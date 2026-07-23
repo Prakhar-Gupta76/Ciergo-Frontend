@@ -35,10 +35,10 @@ import {
 } from "./components/CalendarView";
 import {
   BookingFormModal,
-  PaymentModal,
 } from "./components/DataModals";
 import { Filters } from "./components/Filters";
 import { ConfirmModal } from "./components/Modal";
+import { PaymentSidesheet } from "./components/PaymentSidesheet";
 import { Shell } from "./components/Shell";
 import { SummaryPills } from "./components/SummaryPills";
 import type {
@@ -51,6 +51,7 @@ import type {
   CalendarEvent,
   FiltersState,
   PaymentWritePayload,
+  PaymentSheetMode,
   TabView,
 } from "./types";
 
@@ -213,7 +214,10 @@ export default function App() {
   >({});
   const [editingBooking, setEditingBooking] = useState<ApiBooking>();
   const [creatingBooking, setCreatingBooking] = useState(false);
-  const [paymentBooking, setPaymentBooking] = useState<Booking>();
+  const [paymentSheet, setPaymentSheet] = useState<{
+    booking: Booking;
+    mode: PaymentSheetMode;
+  }>();
   const [calendarFrom, setCalendarFrom] = useState(() => {
     const value = new Date();
     value.setHours(0, 0, 0, 0);
@@ -269,12 +273,19 @@ export default function App() {
         toBooking(
           booking,
           index,
+          payments,
           permissions,
           sessionCreatedIds,
           approvalOverrides,
         ),
       ),
-    [apiBookings, permissions, sessionCreatedIds, approvalOverrides],
+    [
+      apiBookings,
+      payments,
+      permissions,
+      sessionCreatedIds,
+      approvalOverrides,
+    ],
   );
   const lookups = useMemo(() => deriveLookups(allBookings), [allBookings]);
   const filteredBookings = useMemo(
@@ -409,7 +420,11 @@ export default function App() {
       return;
     }
     if (action === "RECORD_PAYMENT") {
-      setPaymentBooking(booking);
+      setPaymentSheet({ booking, mode: "CREATE" });
+      return;
+    }
+    if (action === "VIEW_PAYMENTS") {
+      setPaymentSheet({ booking, mode: "LIST" });
       return;
     }
     if (action === "RESTORE")
@@ -466,7 +481,7 @@ export default function App() {
   const savePayment = async (
     payload: PaymentWritePayload,
     paymentId?: string,
-  ) => {
+  ): Promise<boolean> => {
     setBusy(true);
     try {
       if (paymentId) {
@@ -478,9 +493,10 @@ export default function App() {
       }
       const records = await paymentApi.list();
       setPayments(records);
-      setPaymentBooking(undefined);
+      return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to save payment.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -627,13 +643,15 @@ export default function App() {
           }
         />
       )}
-      {paymentBooking && (
-        <PaymentModal
-          booking={paymentBooking}
+      {paymentSheet && (
+        <PaymentSidesheet
+          key={`${paymentSheet.booking._id}-${paymentSheet.mode}`}
+          booking={paymentSheet.booking}
           payments={payments}
+          initialMode={paymentSheet.mode}
           busy={busy}
-          onClose={() => setPaymentBooking(undefined)}
-          onSave={(payload, id) => void savePayment(payload, id)}
+          onClose={() => setPaymentSheet(undefined)}
+          onSave={savePayment}
         />
       )}
       {confirm && (

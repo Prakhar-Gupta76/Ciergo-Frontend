@@ -1,5 +1,6 @@
 import type {
   ApiBooking,
+  ApiPayment,
   ApprovalStatus,
   Booking,
   CalendarEvent,
@@ -73,8 +74,58 @@ export function serviceLookup(name: string): LookupType {
   };
 }
 
-function paymentStatus(value: string): string {
-  return value.trim().toUpperCase().replace(/\s+/g, "_") || "PENDING";
+const paymentBookingId = (payment: ApiPayment): string =>
+  String(payment.BookingID || payment.bookingId || "").trim();
+
+const paymentParty = (payment: ApiPayment): "Customer" | "Vendor" =>
+  String(payment.CustomerORVendor || payment.party || "Customer")
+    .trim()
+    .toLowerCase() === "vendor"
+    ? "Vendor"
+    : "Customer";
+
+function paymentBreakdown(
+  apiBooking: ApiBooking,
+  payments: ApiPayment[],
+): Booking["paymentBreakdown"] {
+  const associated = payments.filter(
+    (payment) => paymentBookingId(payment) === apiBooking.bookingId,
+  );
+  const customerPaid =
+    associated
+      .filter((payment) => paymentParty(payment) === "Customer")
+      .reduce((total, payment) => total + numberValue(payment.amount), 0) * 100;
+  const vendorPaid =
+    associated
+      .filter((payment) => paymentParty(payment) === "Vendor")
+      .reduce((total, payment) => total + numberValue(payment.amount), 0) * 100;
+  const customerTotal = numberValue(apiBooking.totalAmount) * 100;
+  const vendorTotal =
+    (numberValue(apiBooking.vendorPaid) + numberValue(apiBooking.vendorDue)) *
+    100;
+
+  return {
+    customer: {
+      paid: customerPaid,
+      pending: Math.max(customerTotal - customerPaid, 0),
+      total: customerTotal,
+    },
+    vendor: {
+      paid: vendorPaid,
+      pending: Math.max(vendorTotal - vendorPaid, 0),
+      total: vendorTotal,
+    },
+  };
+}
+
+function cumulativePaymentStatus(
+  breakdown: Booking["paymentBreakdown"],
+): string {
+  const paid = breakdown.customer.paid + breakdown.vendor.paid;
+  const total = breakdown.customer.total + breakdown.vendor.total;
+  if (paid <= 0) return "PENDING";
+  if (total <= 0 || paid >= total) return "PAID";
+  return "PARTIALLY_PAID";
 }
 
 function defaultApproval(apiBooking: ApiBooking): ApprovalStatus {
@@ -111,6 +162,7 @@ function actionsFor(
 export function toBooking(
   apiBooking: ApiBooking,
   index: number,
+  payments: ApiPayment[],
   permissions: string[],
   sessionCreatedIds: Set<string>,
   approvalOverrides: Record<string, ApprovalStatus>,
@@ -134,12 +186,16 @@ export function toBooking(
   const vendorAmount =
     (numberValue(apiBooking.vendorPaid) + numberValue(apiBooking.vendorDue)) *
     100;
+  const breakdown = paymentBreakdown(apiBooking, payments);
 
   return {
     _id: uiKey,
     resourceId,
     sessionCreated: resourceId ? sessionCreatedIds.has(resourceId) : false,
     bookingId: apiBooking.bookingId || `Booking ${index + 1}`,
+    customerName:
+      apiBooking.customerName || apiBooking.leadPax || "Unknown customer",
+    vendorName: apiBooking.vendorName || "Unknown vendor",
     leadPax: { name: apiBooking.leadPax || apiBooking.customerName || "—" },
     bookingDate: isoDate(apiBooking.bookingDate),
     travelStartDate: isoDate(apiBooking.travelDate),
@@ -167,11 +223,12 @@ export function toBooking(
       grossMargin: customerAmount - vendorAmount,
     },
     pendingAmounts: {
-      customer: numberValue(apiBooking.customerDue) * 100,
-      vendor: numberValue(apiBooking.vendorDue) * 100,
+      customer: breakdown.customer.pending,
+      vendor: breakdown.vendor.pending,
     },
+    paymentBreakdown: breakdown,
     bookingStatus: apiBooking.serviceStatus || "Pending",
-    paymentStatus: paymentStatus(apiBooking.paymentStatus),
+    paymentStatus: cumulativePaymentStatus(breakdown),
     approval: {
       required: approval !== "NOT_REQUIRED",
       status: approval,
