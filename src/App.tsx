@@ -1,133 +1,713 @@
-import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, ChevronDown, Download, Merge, MoreHorizontal, MousePointerClick, Trash2, Upload, X } from "lucide-react";
-import { api, patch, post } from "./api";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Download,
+  Merge,
+  MoreHorizontal,
+  MousePointerClick,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { api } from "./api";
+import {
+  calendarEvents as buildCalendarEvents,
+  deriveLookups,
+  filterBookings,
+  financeSummary,
+  paginate,
+  toBooking,
+} from "./bookingData";
+import { bookingApi, paymentApi } from "./mockApi";
 import { BookingsTable } from "./components/BookingsTable";
-import { CalendarView, RescheduleModal, StatusModal } from "./components/CalendarView";
+import {
+  CalendarView,
+  RescheduleModal,
+  StatusModal,
+} from "./components/CalendarView";
+import {
+  BookingFormModal,
+  PaymentModal,
+} from "./components/DataModals";
 import { Filters } from "./components/Filters";
 import { ConfirmModal } from "./components/Modal";
 import { Shell } from "./components/Shell";
 import { SummaryPills } from "./components/SummaryPills";
-import type { ApprovalStatus, Booking, CalendarEvent, FiltersState, FinanceSummary, LookupType, Pagination, TabView, UserSummary } from "./types";
+import type {
+  ApiBooking,
+  ApiPayment,
+  ApprovalStatus,
+  AuthUser,
+  Booking,
+  BookingWritePayload,
+  CalendarEvent,
+  FiltersState,
+  PaymentWritePayload,
+  TabView,
+} from "./types";
 
 const emptyFilters: FiltersState = {
-  bookingDateFrom: "", bookingDateTo: "", travelDateFrom: "", travelDateTo: "", ownerIds: [],
-  primaryOwnerIds: [], secondaryOwnerIds: [], bookingTypeIds: [], serviceTypeIds: [], search: "",
-  includeIncomplete: false, sortBy: "updatedAt", sortOrder: "desc"
+  bookingDateFrom: "",
+  bookingDateTo: "",
+  travelDateFrom: "",
+  travelDateTo: "",
+  ownerIds: [],
+  primaryOwnerIds: [],
+  secondaryOwnerIds: [],
+  bookingTypeIds: [],
+  serviceTypeIds: [],
+  search: "",
+  includeIncomplete: false,
+  sortBy: "updatedAt",
+  sortOrder: "desc",
 };
-const emptyPagination: Pagination = { page: 1, limit: 6, total: 0, totalPages: 0, from: 0, to: 0 };
 
-function HeaderActions({ selected, allIds, onSelected, onCalendar, toast }: { selected: string[]; allIds: string[]; onSelected: (ids: string[]) => void; onCalendar: () => void; toast: (message: string) => void }) {
+const withoutResourceId = (source: ApiBooking): BookingWritePayload => {
+  const copy = { ...source };
+  delete copy.ID;
+  return copy;
+};
+
+function HeaderActions({
+  selected,
+  allIds,
+  canCreate,
+  onSelected,
+  onCreate,
+  onCalendar,
+  toast,
+}: {
+  selected: string[];
+  allIds: string[];
+  canCreate: boolean;
+  onSelected: (ids: string[]) => void;
+  onCreate: () => void;
+  onCalendar: () => void;
+  toast: (message: string) => void;
+}) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  if (selected.length > 0) return <div className="header-actions selection-actions"><button className="btn secondary" onClick={() => onSelected([])}>Cancel</button><button className="btn secondary" onClick={() => onSelected(selected.length === allIds.length ? [] : allIds)}>{selected.length === allIds.length ? "Deselect all" : "Select all"}</button><div className="relative"><button className="square-btn" onClick={() => setBulkOpen(!bulkOpen)}><MoreHorizontal size={18} /></button>{bulkOpen && <div className="dropdown-menu bulk-menu"><button onClick={() => toast("Download is outside the current backend scope.")}><Download size={17} />Download</button><button onClick={() => toast("Merge is not implemented in the agreed scope.")}><Merge size={17} />Merge</button><button className="danger" onClick={() => toast("Bulk delete is not implemented in the agreed scope.")}><Trash2 size={17} />Delete</button></div>}</div><button className="square-btn" onClick={onCalendar}><CalendarDays size={17} /></button></div>;
-  return <div className="header-actions"><div className="relative"><button className="more-actions" onClick={() => setMoreOpen(!moreOpen)}><span>More Actions</span><span className="split"><ChevronDown size={14} /></span></button>{moreOpen && <div className="dropdown-menu more-menu"><button onClick={() => { setMoreOpen(false); onSelected(allIds.slice(0, 1)); }}><MousePointerClick size={17} />Select</button><button onClick={() => toast("Upload is outside the current backend scope.")}><Upload size={17} />Upload</button></div>}</div><button className="square-btn" onClick={onCalendar}><CalendarDays size={17} /></button></div>;
+  if (selected.length > 0)
+    return (
+      <div className="header-actions selection-actions">
+        <button className="btn secondary" onClick={() => onSelected([])}>
+          Cancel
+        </button>
+        <button
+          className="btn secondary"
+          onClick={() =>
+            onSelected(selected.length === allIds.length ? [] : allIds)
+          }
+        >
+          {selected.length === allIds.length ? "Deselect all" : "Select all"}
+        </button>
+        <div className="relative">
+          <button className="square-btn" onClick={() => setBulkOpen(!bulkOpen)}>
+            <MoreHorizontal size={18} />
+          </button>
+          {bulkOpen && (
+            <div className="dropdown-menu bulk-menu">
+              <button onClick={() => toast("Download remains UI-only.")}>
+                <Download size={17} />
+                Download
+              </button>
+              <button onClick={() => toast("Merge remains UI-only.")}>
+                <Merge size={17} />
+                Merge
+              </button>
+              <button
+                className="danger"
+                onClick={() =>
+                  toast("Bulk delete is not part of the supplied API.")
+                }
+              >
+                <Trash2 size={17} />
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+        <button className="square-btn" onClick={onCalendar}>
+          <CalendarDays size={17} />
+        </button>
+      </div>
+    );
+  return (
+    <div className="header-actions">
+      {canCreate && (
+        <button className="btn purple create-booking-btn" onClick={onCreate}>
+          <Plus size={16} />
+          Create Booking
+        </button>
+      )}
+      <div className="relative">
+        <button className="more-actions" onClick={() => setMoreOpen(!moreOpen)}>
+          <span>More Actions</span>
+          <span className="split">
+            <ChevronDown size={14} />
+          </span>
+        </button>
+        {moreOpen && (
+          <div className="dropdown-menu more-menu">
+            <button
+              onClick={() => {
+                setMoreOpen(false);
+                onSelected(allIds.slice(0, 1));
+              }}
+            >
+              <MousePointerClick size={17} />
+              Select
+            </button>
+            <button onClick={() => toast("Upload remains UI-only.")}>
+              <Upload size={17} />
+              Upload
+            </button>
+          </div>
+        )}
+      </div>
+      <button className="square-btn" onClick={onCalendar}>
+        <CalendarDays size={17} />
+      </button>
+    </div>
+  );
 }
 
 export default function App() {
-  const [page, setPage] = useState<"bookings" | "calendar">(() => new URLSearchParams(window.location.search).get("view") === "calendar" ? "calendar" : "bookings");
+  const [page, setPage] = useState<"bookings" | "calendar">(() =>
+    new URLSearchParams(window.location.search).get("view") === "calendar"
+      ? "calendar"
+      : "bookings",
+  );
   const [view, setView] = useState<TabView>("ACTIVE");
-  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus | "ALL">("ALL");
+  const [approvalStatus, setApprovalStatus] = useState<
+    ApprovalStatus | "ALL"
+  >("ALL");
   const [filters, setFilters] = useState<FiltersState>(emptyFilters);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [pagination, setPagination] = useState<Pagination>(emptyPagination);
+  const [apiBookings, setApiBookings] = useState<ApiBooking[]>([]);
+  const [payments, setPayments] = useState<ApiPayment[]>([]);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
   const [limit, setLimit] = useState(6);
-  const [owners, setOwners] = useState<UserSummary[]>([]);
-  const [bookingTypes, setBookingTypes] = useState<LookupType[]>([]);
-  const [serviceTypes, setServiceTypes] = useState<LookupType[]>([]);
-  const [summary, setSummary] = useState<FinanceSummary>();
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fatalError, setFatalError] = useState("");
+  const [dataError, setDataError] = useState("");
   const [toast, setToast] = useState("");
-  const [confirm, setConfirm] = useState<{ action: string; booking: Booking } | null>(null);
+  const [confirm, setConfirm] = useState<{
+    action: string;
+    booking: Booking;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [sessionCreatedIds, setSessionCreatedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [approvalOverrides, setApprovalOverrides] = useState<
+    Record<string, ApprovalStatus>
+  >({});
+  const [editingBooking, setEditingBooking] = useState<ApiBooking>();
+  const [creatingBooking, setCreatingBooking] = useState(false);
+  const [paymentBooking, setPaymentBooking] = useState<Booking>();
   const [calendarFrom, setCalendarFrom] = useState(() => {
     const value = new Date();
     value.setHours(0, 0, 0, 0);
     value.setDate(value.getDate() - 2);
     return value;
   });
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [rescheduleEvent, setRescheduleEvent] = useState<CalendarEvent | null>(null);
+  const calendarInitialized = useRef(false);
+  const [rescheduleEvent, setRescheduleEvent] =
+    useState<CalendarEvent | null>(null);
   const [statusEvent, setStatusEvent] = useState<CalendarEvent | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast(""), 3200);
+    window.setTimeout(() => setToast(""), 3600);
   }, []);
+
+  const fetchFinanceData = useCallback(async () => {
+    const [bookingRecords, paymentRecords] = await Promise.all([
+      bookingApi.list(),
+      paymentApi.list(),
+    ]);
+    if (!Array.isArray(bookingRecords) || !Array.isArray(paymentRecords))
+      throw new Error("The MockAPI returned an unexpected response.");
+    setApiBookings(bookingRecords);
+    setPayments(paymentRecords);
+  }, []);
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setDataError("");
+    try {
+      const [authResponse] = await Promise.all([
+        api<{ data: AuthUser }>("/auth/me"),
+        fetchFinanceData(),
+      ]);
+      setPermissions(authResponse.data.permissions || []);
+    } catch (error) {
+      setDataError(
+        error instanceof Error ? error.message : "Unable to load bookings.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchFinanceData]);
 
   useEffect(() => {
-    Promise.all([
-      api<{ data: UserSummary[] }>("/users/booking-owners"),
-      api<{ data: LookupType[] }>("/booking-types"),
-      api<{ data: LookupType[] }>("/service-types"),
-      api<{ data: FinanceSummary }>("/bookings/finance-summary")
-    ]).then(([ownerData, typeData, serviceData, summaryData]) => {
-      setOwners(ownerData.data); setBookingTypes(typeData.data); setServiceTypes(serviceData.data); setSummary(summaryData.data);
-    }).catch((error: Error) => setFatalError(error.message));
-  }, []);
+    void loadPage();
+  }, [loadPage]);
 
-  const loadBookings = useCallback(() => {
-    setLoading(true);
-    const params = new URLSearchParams({ view, approvalStatus, page: String(pageNumber), limit: String(limit), includeIncomplete: String(filters.includeIncomplete), sortBy: filters.sortBy, sortOrder: filters.sortOrder });
-    (["bookingDateFrom", "bookingDateTo", "travelDateFrom", "travelDateTo", "search"] as const).forEach((key) => filters[key] && params.set(key, String(filters[key])));
-    (["ownerIds", "primaryOwnerIds", "secondaryOwnerIds", "bookingTypeIds", "serviceTypeIds"] as const).forEach((key) => filters[key].length && params.set(key, filters[key].join(",")));
-    api<{ data: Booking[]; pagination: Pagination }>(`/bookings?${params}`).then((response) => {
-      setBookings(response.data); setPagination(response.pagination); setSelected((current) => current.filter((id) => response.data.some((booking) => booking._id === id)));
-    }).catch((error: Error) => showToast(error.message)).finally(() => setLoading(false));
-  }, [view, approvalStatus, pageNumber, limit, filters, showToast]);
+  const allBookings = useMemo(
+    () =>
+      apiBookings.map((booking, index) =>
+        toBooking(
+          booking,
+          index,
+          permissions,
+          sessionCreatedIds,
+          approvalOverrides,
+        ),
+      ),
+    [apiBookings, permissions, sessionCreatedIds, approvalOverrides],
+  );
+  const lookups = useMemo(() => deriveLookups(allBookings), [allBookings]);
+  const filteredBookings = useMemo(
+    () =>
+      filterBookings(
+        allBookings,
+        view,
+        approvalStatus,
+        filters,
+      ),
+    [allBookings, view, approvalStatus, filters],
+  );
+  const pageResult = useMemo(
+    () => paginate(filteredBookings, pageNumber, limit),
+    [filteredBookings, pageNumber, limit],
+  );
+  const summary = useMemo(() => financeSummary(allBookings), [allBookings]);
+  const timelineEvents = useMemo(
+    () => buildCalendarEvents(allBookings),
+    [allBookings],
+  );
 
-  useEffect(() => { if (page === "bookings") loadBookings(); }, [page, loadBookings]);
+  useEffect(() => {
+    setSelected((current) =>
+      current.filter((id) =>
+        pageResult.data.some((booking) => booking._id === id),
+      ),
+    );
+  }, [pageResult.data]);
 
-  const loadCalendar = useCallback(() => {
-    if (page !== "calendar") return;
-    setCalendarLoading(true);
-    const end = new Date(calendarFrom); end.setDate(end.getDate() + 7); end.setHours(23, 59, 59, 999);
-    const params = new URLSearchParams({ from: calendarFrom.toISOString(), to: end.toISOString() });
-    if (filters.ownerIds.length) params.set("ownerIds", filters.ownerIds.join(","));
-    if (filters.bookingTypeIds.length) params.set("bookingTypeIds", filters.bookingTypeIds.join(","));
-    if (filters.serviceTypeIds.length) params.set("serviceTypeIds", filters.serviceTypeIds.join(","));
-    if (filters.search) params.set("search", filters.search);
-    api<{ data: { events: CalendarEvent[] } }>(`/bookings/calendar?${params}`).then((response) => setCalendarEvents(response.data.events)).catch((error: Error) => showToast(error.message)).finally(() => setCalendarLoading(false));
-  }, [page, calendarFrom, filters.ownerIds, filters.bookingTypeIds, filters.serviceTypeIds, filters.search, showToast]);
+  useEffect(() => {
+    if (calendarInitialized.current || timelineEvents.length === 0) return;
+    const first = new Date(timelineEvents[0].schedule.startAt);
+    if (!Number.isNaN(first.getTime())) {
+      first.setHours(0, 0, 0, 0);
+      first.setDate(first.getDate() - 2);
+      setCalendarFrom(first);
+      calendarInitialized.current = true;
+    }
+  }, [timelineEvents]);
 
-  useEffect(() => { loadCalendar(); }, [loadCalendar]);
+  const sourceFor = (booking: Booking) =>
+    apiBookings.find((source) =>
+      booking.resourceId
+        ? source.ID === booking.resourceId
+        : source.bookingId === booking.bookingId,
+    );
 
-  const changeFilters = (next: FiltersState) => { setFilters(next); setPageNumber(1); };
-  const changeView = (next: TabView) => { setView(next); setPageNumber(1); setSelected([]); };
-  const requestAction = (action: string, booking: Booking) => {
-    if (["APPROVE", "REJECT", "SUBMIT_FOR_APPROVAL"].includes(action)) setConfirm({ action, booking });
-    else if (["RESTORE", "DUPLICATE"].includes(action)) void executeAction(action, booking);
-    else if (action === "DELETE") void api(`/bookings/${booking._id}`, { method: "DELETE" }).catch((error: Error) => showToast(error.message));
-    else showToast(`${action.replaceAll("_", " ")} is displayed as designed; its backend operation is deferred.`);
+  const refetchFinance = async () => {
+    try {
+      await fetchFinanceData();
+      setDataError("");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to refresh data.";
+      setDataError(message);
+      throw error;
+    }
   };
-  const executeAction = async (action: string, booking: Booking) => {
+
+  const saveBooking = async (
+    payload: BookingWritePayload,
+    resourceId?: string,
+  ) => {
     setBusy(true);
     try {
-      const paths: Record<string, string> = {
-        APPROVE: `/bookings/${booking._id}/approve`, REJECT: `/bookings/${booking._id}/reject`,
-        SUBMIT_FOR_APPROVAL: `/bookings/${booking._id}/submit-for-approval`, RESTORE: `/bookings/${booking._id}/restore`, DUPLICATE: `/bookings/${booking._id}/duplicate`
-      };
-      await post(paths[action], {});
-      showToast(action === "APPROVE" ? "Booking approved" : action === "REJECT" ? "Booking rejected" : action === "RESTORE" ? "Booking restored" : action === "DUPLICATE" ? "Booking duplicated" : "Booking sent for approval");
-      setConfirm(null); loadBookings();
-      const nextSummary = await api<{ data: FinanceSummary }>("/bookings/finance-summary"); setSummary(nextSummary.data);
-    } catch (error) { showToast(error instanceof Error ? error.message : "Action failed"); }
-    finally { setBusy(false); }
+      if (resourceId) {
+        if (!sessionCreatedIds.has(resourceId))
+          throw new Error(
+            "Only bookings created during this session can be updated.",
+          );
+        await bookingApi.update(resourceId, payload);
+        showToast("Booking updated successfully.");
+      } else {
+        const created = await bookingApi.create(payload);
+        if (!created.ID)
+          throw new Error("The created booking did not receive a resource ID.");
+        setSessionCreatedIds(
+          (current) => new Set([...current, String(created.ID)]),
+        );
+        showToast("Booking created successfully.");
+      }
+      setCreatingBooking(false);
+      setEditingBooking(undefined);
+      await refetchFinance();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to save booking.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  if (fatalError) return <div className="connection-screen"><div className="connection-card"><span className="brand">ciergo</span><h1>Backend connection needed</h1><p>{fatalError}</p><code>cd backend<br />npm run dev</code><button className="btn purple" onClick={() => window.location.reload()}>Retry connection</button></div></div>;
+  const duplicateBooking = async (booking: Booking) => {
+    const source = sourceFor(booking);
+    if (!source) return showToast("The source booking could not be found.");
+    const payload = withoutResourceId(source);
+    await saveBooking({
+      ...payload,
+      bookingId: `${source.bookingId}-COPY-${Date.now().toString().slice(-4)}`,
+      isDeleted: false,
+      createdAt: new Date().toISOString().slice(0, 10),
+      modifiedAt: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const requestAction = (action: string, booking: Booking) => {
+    if (["APPROVE", "REJECT", "SUBMIT_FOR_APPROVAL", "DELETE"].includes(action)) {
+      if (
+        action === "DELETE" &&
+        (!booking.resourceId || !booking.sessionCreated)
+      ) {
+        showToast(
+          "Seeded bookings have no usable session resource ID and cannot be deleted.",
+        );
+        return;
+      }
+      setConfirm({ action, booking });
+      return;
+    }
+    if (action === "EDIT") {
+      if (!booking.resourceId || !booking.sessionCreated) {
+        showToast(
+          "Only bookings created during this session can be updated.",
+        );
+        return;
+      }
+      setEditingBooking(sourceFor(booking));
+      return;
+    }
+    if (action === "DUPLICATE") {
+      void duplicateBooking(booking);
+      return;
+    }
+    if (action === "RECORD_PAYMENT") {
+      setPaymentBooking(booking);
+      return;
+    }
+    if (action === "RESTORE")
+      showToast("Restore remains UI-only because MockAPI has no restore endpoint.");
+    else if (action === "LINK")
+      showToast("Link remains UI-only because it is not part of the MockAPI schema.");
+  };
+
+  const executeConfirmedAction = async () => {
+    if (!confirm) return;
+    const { action, booking } = confirm;
+    setBusy(true);
+    try {
+      if (action === "DELETE") {
+        if (!booking.resourceId || !sessionCreatedIds.has(booking.resourceId))
+          throw new Error(
+            "Only bookings created during this session can be deleted.",
+          );
+        await bookingApi.remove(booking.resourceId);
+        setSessionCreatedIds((current) => {
+          const next = new Set(current);
+          next.delete(booking.resourceId!);
+          return next;
+        });
+        await refetchFinance();
+        showToast("Booking deleted successfully.");
+      } else {
+        const nextStatus: ApprovalStatus =
+          action === "APPROVE"
+            ? "APPROVED"
+            : action === "REJECT"
+              ? "REJECTED"
+              : "PENDING";
+        setApprovalOverrides((current) => ({
+          ...current,
+          [booking.bookingId]: nextStatus,
+        }));
+        showToast(
+          action === "APPROVE"
+            ? "Booking approved in the UI."
+            : action === "REJECT"
+              ? "Booking rejected in the UI."
+              : "Booking sent for approval in the UI.",
+        );
+      }
+      setConfirm(null);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Action failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savePayment = async (
+    payload: PaymentWritePayload,
+    paymentId?: string,
+  ) => {
+    setBusy(true);
+    try {
+      if (paymentId) {
+        await paymentApi.update(paymentId, payload);
+        showToast("Payment updated successfully.");
+      } else {
+        await paymentApi.create(payload);
+        showToast("Payment recorded successfully.");
+      }
+      const records = await paymentApi.list();
+      setPayments(records);
+      setPaymentBooking(undefined);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to save payment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateCalendarBooking = async (
+    event: CalendarEvent,
+    changes: Partial<BookingWritePayload>,
+  ) => {
+    const booking = event.bookingId;
+    const source = sourceFor(booking);
+    if (
+      !source ||
+      !booking.resourceId ||
+      !sessionCreatedIds.has(booking.resourceId)
+    ) {
+      showToast(
+        "Calendar changes can only be saved for bookings created during this session.",
+      );
+      return;
+    }
+    await saveBooking(
+      { ...withoutResourceId(source), ...changes },
+      booking.resourceId,
+    );
+  };
+
+  const changeFilters = (next: FiltersState) => {
+    setFilters(next);
+    setPageNumber(1);
+  };
+  const changeView = (next: TabView) => {
+    setView(next);
+    setPageNumber(1);
+    setSelected([]);
+  };
 
   return (
-    <Shell page={page} onCalendar={() => setPage(page === "calendar" ? "bookings" : "calendar")} summary={<SummaryPills summary={summary} />} selectionActions={page === "bookings" ? <HeaderActions selected={selected} allIds={bookings.map((booking) => booking._id)} onSelected={setSelected} onCalendar={() => setPage("calendar")} toast={showToast} /> : undefined}>
-      <Filters filters={filters} setFilters={changeFilters} owners={owners} bookingTypes={bookingTypes} calendar={page === "calendar"} />
-      {page === "bookings" ? <BookingsTable bookings={bookings} pagination={pagination} view={view} approvalStatus={approvalStatus} filters={filters} serviceTypes={serviceTypes} selected={selected} loading={loading} onViewChange={changeView} onApprovalStatusChange={(status) => { setApprovalStatus(status); setPageNumber(1); }} onToggleIncomplete={() => changeFilters({ ...filters, includeIncomplete: !filters.includeIncomplete })} onFiltersChange={changeFilters} onSelectionChange={setSelected} onPageChange={setPageNumber} onLimitChange={(value) => { setLimit(value); setPageNumber(1); }} onAction={requestAction} /> : <CalendarView events={calendarEvents} from={calendarFrom} loading={calendarLoading} onPrevious={() => setCalendarFrom(new Date(calendarFrom.getFullYear(), calendarFrom.getMonth(), calendarFrom.getDate() - 7))} onNext={() => setCalendarFrom(new Date(calendarFrom.getFullYear(), calendarFrom.getMonth(), calendarFrom.getDate() + 7))} onStatus={setStatusEvent} onReschedule={setRescheduleEvent} />}
-      {confirm && <ConfirmModal busy={busy} tone={confirm.action === "APPROVE" ? "green" : confirm.action === "REJECT" ? "red" : "purple"} confirmText={confirm.action === "APPROVE" ? "Yes, Approve" : confirm.action === "REJECT" ? "Yes, Reject" : "Yes, Send for Approval"} message={<>Are you sure you want to {confirm.action === "APPROVE" ? "approve" : confirm.action === "REJECT" ? "reject" : "send"} this booking with ID <strong>‘{confirm.booking.bookingId}’</strong>{confirm.action === "SUBMIT_FOR_APPROVAL" ? " for approval" : ""}?</>} onClose={() => setConfirm(null)} onConfirm={() => void executeAction(confirm.action, confirm.booking)} />}
-      {rescheduleEvent && <RescheduleModal event={rescheduleEvent} onClose={() => setRescheduleEvent(null)} onSave={async (startAt, endAt) => { try { await patch(`/booking-services/${rescheduleEvent._id}/reschedule`, { startAt, endAt }); setRescheduleEvent(null); showToast("Booking service rescheduled"); loadCalendar(); } catch (error) { showToast(error instanceof Error ? error.message : "Unable to reschedule"); } }} />}
-      {statusEvent && <StatusModal event={statusEvent} onClose={() => setStatusEvent(null)} onSave={async (status) => { try { await patch(`/booking-services/${statusEvent._id}/status`, { status }); setStatusEvent(null); showToast("Status changed"); loadCalendar(); } catch (error) { showToast(error instanceof Error ? error.message : "Unable to change status"); } }} />}
-      {toast && <div className="toast"><X size={16} onClick={() => setToast("")} /><span>{toast}</span></div>}
+    <Shell
+      page={page}
+      onCalendar={() =>
+        setPage(page === "calendar" ? "bookings" : "calendar")
+      }
+      summary={<SummaryPills summary={summary} />}
+      selectionActions={
+        page === "bookings" ? (
+          <HeaderActions
+            selected={selected}
+            allIds={pageResult.data.map((booking) => booking._id)}
+            canCreate={permissions.includes("bookings.create")}
+            onSelected={setSelected}
+            onCreate={() => setCreatingBooking(true)}
+            onCalendar={() => setPage("calendar")}
+            toast={showToast}
+          />
+        ) : undefined
+      }
+    >
+      <Filters
+        filters={filters}
+        setFilters={changeFilters}
+        owners={lookups.owners}
+        bookingTypes={lookups.bookingTypes}
+        calendar={page === "calendar"}
+      />
+      {page === "bookings" ? (
+        <BookingsTable
+          bookings={pageResult.data}
+          pagination={pageResult.pagination}
+          view={view}
+          approvalStatus={approvalStatus}
+          filters={filters}
+          serviceTypes={lookups.serviceTypes}
+          selected={selected}
+          loading={loading}
+          error={dataError}
+          sourceEmpty={!loading && !dataError && apiBookings.length === 0}
+          canViewApprovals={permissions.some((permission) =>
+            permission.startsWith("bookings.approve"),
+          )}
+          onRetry={() => void loadPage()}
+          onViewChange={changeView}
+          onApprovalStatusChange={(status) => {
+            setApprovalStatus(status);
+            setPageNumber(1);
+          }}
+          onToggleIncomplete={() =>
+            changeFilters({
+              ...filters,
+              includeIncomplete: !filters.includeIncomplete,
+            })
+          }
+          onFiltersChange={changeFilters}
+          onSelectionChange={setSelected}
+          onPageChange={setPageNumber}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPageNumber(1);
+          }}
+          onAction={requestAction}
+        />
+      ) : (
+        <CalendarView
+          events={timelineEvents}
+          from={calendarFrom}
+          loading={loading}
+          onPrevious={() =>
+            setCalendarFrom(
+              new Date(
+                calendarFrom.getFullYear(),
+                calendarFrom.getMonth(),
+                calendarFrom.getDate() - 7,
+              ),
+            )
+          }
+          onNext={() =>
+            setCalendarFrom(
+              new Date(
+                calendarFrom.getFullYear(),
+                calendarFrom.getMonth(),
+                calendarFrom.getDate() + 7,
+              ),
+            )
+          }
+          onStatus={setStatusEvent}
+          onReschedule={setRescheduleEvent}
+        />
+      )}
+
+      {creatingBooking && (
+        <BookingFormModal
+          busy={busy}
+          onClose={() => setCreatingBooking(false)}
+          onSave={(payload) => void saveBooking(payload)}
+        />
+      )}
+      {editingBooking && (
+        <BookingFormModal
+          source={editingBooking}
+          busy={busy}
+          onClose={() => setEditingBooking(undefined)}
+          onSave={(payload) =>
+            void saveBooking(payload, editingBooking.ID)
+          }
+        />
+      )}
+      {paymentBooking && (
+        <PaymentModal
+          booking={paymentBooking}
+          payments={payments}
+          busy={busy}
+          onClose={() => setPaymentBooking(undefined)}
+          onSave={(payload, id) => void savePayment(payload, id)}
+        />
+      )}
+      {confirm && (
+        <ConfirmModal
+          busy={busy}
+          tone={
+            confirm.action === "APPROVE"
+              ? "green"
+              : ["REJECT", "DELETE"].includes(confirm.action)
+                ? "red"
+                : "purple"
+          }
+          confirmText={
+            confirm.action === "APPROVE"
+              ? "Yes, Approve"
+              : confirm.action === "REJECT"
+                ? "Yes, Reject"
+                : confirm.action === "DELETE"
+                  ? "Yes, Delete"
+                  : "Yes, Send for Approval"
+          }
+          message={
+            <>
+              Are you sure you want to{" "}
+              {confirm.action === "APPROVE"
+                ? "approve"
+                : confirm.action === "REJECT"
+                  ? "reject"
+                  : confirm.action === "DELETE"
+                    ? "delete"
+                    : "send"}{" "}
+              this booking with ID <strong>‘{confirm.booking.bookingId}’</strong>
+              {confirm.action === "SUBMIT_FOR_APPROVAL"
+                ? " for approval"
+                : ""}
+              ?
+            </>
+          }
+          onClose={() => setConfirm(null)}
+          onConfirm={() => void executeConfirmedAction()}
+        />
+      )}
+      {rescheduleEvent && (
+        <RescheduleModal
+          event={rescheduleEvent}
+          onClose={() => setRescheduleEvent(null)}
+          onSave={(startAt) => {
+            void updateCalendarBooking(rescheduleEvent, {
+              travelDate: startAt.slice(0, 10),
+              modifiedAt: new Date().toISOString().slice(0, 10),
+            });
+            setRescheduleEvent(null);
+          }}
+        />
+      )}
+      {statusEvent && (
+        <StatusModal
+          event={statusEvent}
+          onClose={() => setStatusEvent(null)}
+          onSave={(status) => {
+            void updateCalendarBooking(statusEvent, {
+              serviceStatus: status.replace("_", " "),
+              modifiedAt: new Date().toISOString().slice(0, 10),
+            });
+            setStatusEvent(null);
+          }}
+        />
+      )}
+      {toast && (
+        <div className="toast">
+          <X size={16} onClick={() => setToast("")} />
+          <span>{toast}</span>
+        </div>
+      )}
     </Shell>
   );
 }

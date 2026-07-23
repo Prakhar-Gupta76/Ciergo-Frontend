@@ -9,7 +9,12 @@ import { Modal } from "./Modal";
 import { ServiceIcon } from "./ServiceIcon";
 
 const money = (amount: number) => `₹ ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(amount / 100)}`;
-const date = (value: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "2-digit" }).format(new Date(value));
+const date = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "2-digit" }).format(parsed);
+};
 const nameOf = (owner: Booking["owners"][number]) => owner.userId.name || `${owner.userId.firstName || ""} ${owner.userId.lastName || ""}`.trim();
 const initialsOf = (owner: Booking["owners"][number]) => owner.userId.initials || nameOf(owner).split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
@@ -49,9 +54,9 @@ function Owners({ booking }: { booking: Booking }) {
 }
 
 export function BookingsTable({
-  bookings, pagination, view, approvalStatus, filters, serviceTypes, selected, loading,
+  bookings, pagination, view, approvalStatus, filters, serviceTypes, selected, loading, error, sourceEmpty, canViewApprovals,
   onViewChange, onApprovalStatusChange, onToggleIncomplete, onFiltersChange, onSelectionChange,
-  onPageChange, onLimitChange, onAction
+  onPageChange, onLimitChange, onAction, onRetry
 }: {
   bookings: Booking[];
   pagination: Pagination;
@@ -61,6 +66,9 @@ export function BookingsTable({
   serviceTypes: LookupType[];
   selected: string[];
   loading: boolean;
+  error: string;
+  sourceEmpty: boolean;
+  canViewApprovals: boolean;
   onViewChange: (view: TabView) => void;
   onApprovalStatusChange: (status: ApprovalStatus | "ALL") => void;
   onToggleIncomplete: () => void;
@@ -69,6 +77,7 @@ export function BookingsTable({
   onPageChange: (page: number) => void;
   onLimitChange: (limit: number) => void;
   onAction: (action: string, booking: Booking) => void;
+  onRetry: () => void;
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const allSelected = bookings.length > 0 && bookings.every((booking) => selected.includes(booking._id));
@@ -81,7 +90,7 @@ export function BookingsTable({
         <div className="tabs">
           <button className={view === "ACTIVE" ? "active" : ""} onClick={() => onViewChange("ACTIVE")}>Bookings</button>
           <button className={view === "DELETED" ? "active" : ""} onClick={() => onViewChange("DELETED")}>Deleted</button>
-          <button className={view === "APPROVALS" ? "active" : ""} onClick={() => onViewChange("APPROVALS")}>Waiting for Approval</button>
+          {canViewApprovals && <button className={view === "APPROVALS" ? "active" : ""} onClick={() => onViewChange("APPROVALS")}>Waiting for Approval</button>}
           {view === "APPROVALS" && <div className="select-wrap approval-select"><select value={approvalStatus} onChange={(event) => onApprovalStatusChange(event.target.value as ApprovalStatus | "ALL")}><option value="ALL">All</option><option value="APPROVED">Approved</option><option value="PENDING">Pending</option><option value="REJECTED">Rejected</option></select><ChevronDown size={14} /></div>}
         </div>
         <div className="table-tools"><label className="toggle-label"><button className={`toggle ${filters.includeIncomplete ? "on" : ""}`} onClick={onToggleIncomplete}><i /></button>Show Incomplete Bookings</label><span className="total-pill">Total&nbsp;&nbsp; {pagination.total}</span></div>
@@ -114,13 +123,14 @@ export function BookingsTable({
             </tr>;
           })}</tbody>
         </table>
-        {!loading && bookings.length === 0 && <div className="empty-state"><ExternalLink size={28} /><strong>No bookings found</strong><span>Try changing the filters or tab.</span></div>}
+        {!loading && error && <div className="empty-state error-state"><ExternalLink size={28} /><strong>Unable to load bookings</strong><span>{error}</span><button className="btn purple" onClick={onRetry}>Retry</button></div>}
+        {!loading && !error && bookings.length === 0 && <div className="empty-state"><ExternalLink size={28} /><strong>{sourceEmpty ? "No bookings are available" : "No bookings match this view"}</strong><span>{sourceEmpty ? "Create a booking to get started." : "Try changing the filters or tab."}</span></div>}
         {loading && <div className="loading-state"><i /><span>Loading bookings…</span></div>}
       </div>
       <div className="pagination-row">
         <label>Rows per page: <select value={pagination.limit} onChange={(event) => onLimitChange(Number(event.target.value))}><option>6</option><option>10</option><option>20</option><option>50</option><option>100</option></select></label>
         <span>Showing {pagination.from}-{pagination.to} of {pagination.total} Bookings</span>
-        <div className="pages"><button disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>‹</button>{Array.from({ length: Math.min(3, pagination.totalPages) }, (_, index) => index + 1).map((page) => <button className={page === pagination.page ? "active" : ""} onClick={() => onPageChange(page)} key={page}>{page}</button>)}{pagination.totalPages > 3 && <><span>…</span><button onClick={() => onPageChange(pagination.totalPages)}>{pagination.totalPages}</button></>}<button disabled={pagination.page >= pagination.totalPages} onClick={() => onPageChange(pagination.page + 1)}>›</button></div>
+        <div className="pages"><button disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>‹</button>{Array.from({ length: Math.min(3, pagination.totalPages) }, (_, index) => index + 1).map((page) => <button className={page === pagination.page ? "active" : ""} onClick={() => onPageChange(page)} key={page}>{page}</button>)}{pagination.totalPages > 3 && <><span>…</span><button onClick={() => onPageChange(pagination.totalPages)}>{pagination.totalPages}</button></>}<button disabled={pagination.totalPages === 0 || pagination.page >= pagination.totalPages} onClick={() => onPageChange(pagination.page + 1)}>›</button></div>
       </div>
       {servicesOpen && <ServiceFilter types={serviceTypes} selected={filters.serviceTypeIds} onClose={() => setServicesOpen(false)} onApply={(serviceTypeIds) => onFiltersChange({ ...filters, serviceTypeIds })} />}
     </section>

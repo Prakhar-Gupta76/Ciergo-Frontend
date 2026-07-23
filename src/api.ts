@@ -1,4 +1,4 @@
-type RequiredEnvironmentVariable = "VITE_API_URL" | "VITE_DEMO_EMAIL" | "VITE_DEMO_PASSWORD";
+type RequiredEnvironmentVariable = "VITE_AUTH_API_URL" | "VITE_DEMO_EMAIL" | "VITE_DEMO_PASSWORD";
 
 function requiredEnvironmentVariable(name: RequiredEnvironmentVariable): string {
   const value = import.meta.env[name];
@@ -8,7 +8,7 @@ function requiredEnvironmentVariable(name: RequiredEnvironmentVariable): string 
   return value;
 }
 
-const API_URL = requiredEnvironmentVariable("VITE_API_URL");
+const API_URL = requiredEnvironmentVariable("VITE_AUTH_API_URL").replace(/\/+$/, "");
 const DEMO_EMAIL = requiredEnvironmentVariable("VITE_DEMO_EMAIL");
 const DEMO_PASSWORD = requiredEnvironmentVariable("VITE_DEMO_PASSWORD");
 
@@ -33,12 +33,13 @@ async function demoLogin(): Promise<void> {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  if (!accessToken && !path.startsWith("/auth/")) await demoLogin();
+  const isLoginRequest = path === "/auth/login";
+  if (!accessToken && !isLoginRequest) await demoLogin();
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
-  if (response.status === 401 && retry && !path.startsWith("/auth/")) {
+  if (response.status === 401 && retry && !isLoginRequest) {
     accessToken = null;
     sessionStorage.removeItem("ciergo_access_token");
     await demoLogin();
